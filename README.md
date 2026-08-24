@@ -29,7 +29,7 @@ baccarat-lab/
 ├── .env.example
 ├── .gitignore
 ├── server/
-│   └── index.js       # Express backend — holds ANTHROPIC_API_KEY, exposes /api/instruction
+└── server.js           # Express backend — holds OPENROUTER_API_KEY, exposes /api/instruction
 └── src/
     ├── App.jsx         # engine + UI + chat logic
     ├── App.css
@@ -39,22 +39,34 @@ baccarat-lab/
 
 ## Why there's a backend
 
-A direct browser → Anthropic API call only works inside Claude.ai's own
-artifact sandbox. A publicly deployed site can't safely call the Anthropic
-API straight from the browser — your API key would be exposed to anyone who
-opens dev tools. So the frontend calls a small Express endpoint
-(`/api/instruction`), and the server holds the key and talks to Anthropic on
+A direct browser → AI API call would expose your API key to anyone who opens
+dev tools on a public site. So the frontend calls a small Express endpoint
+(`/api/instruction`), and the server holds the key and talks to OpenRouter on
 the frontend's behalf.
+
+This project uses [OpenRouter](https://openrouter.ai) rather than calling
+Anthropic directly, since OpenRouter gives you a single API key with access
+to many models — including several free ones — so you can try it out before
+spending anything.
 
 If the backend is unreachable (e.g. no API key configured), the chat panel
 falls back to a simple local instruction parser so the simulator still works
 without AI.
 
+## Getting an OpenRouter API key
+
+1. Sign up at [openrouter.ai](https://openrouter.ai).
+2. Go to **Keys** → **Create Key**.
+3. Copy the key (starts with `sk-or-`).
+4. Free models (like the default `meta-llama/llama-3.3-70b-instruct:free`)
+   don't require adding credit — paid models do. See the
+   [models page](https://openrouter.ai/models) to browse options and pricing.
+
 ## Local development
 
 ```bash
 npm install
-cp .env.example .env   # then add your ANTHROPIC_API_KEY
+cp .env.example .env   # then add your OPENROUTER_API_KEY
 npm run build
 npm start
 ```
@@ -73,7 +85,9 @@ npm run server:dev      # terminal 2 — Express on :3001
 2. In Render: **New → Web Service**, connect the repo.
 3. Build command: `npm install && npm run build`
 4. Start command: `npm start`
-5. Add environment variable `ANTHROPIC_API_KEY` with your key.
+5. Add environment variable `OPENROUTER_API_KEY` with your key (optionally
+   also `OPENROUTER_MODEL` if you want a different model than the free
+   default).
 
 Render builds the Vite frontend into `dist/` and Express serves both the
 static site and the `/api/instruction` endpoint from the same process.

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3001;
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
 
 app.use(express.json());
 
@@ -39,35 +40,38 @@ app.post('/api/instruction', async (req, res) => {
     return res.status(400).json({ error: 'instruction is required' });
   }
 
-  if (!ANTHROPIC_API_KEY) {
-    return res.status(503).json({ error: 'ANTHROPIC_API_KEY not configured on server' });
+  if (!OPENROUTER_API_KEY) {
+    return res.status(503).json({ error: 'OPENROUTER_API_KEY not configured on server' });
   }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        // OpenRouter asks for these two for attribution/rankings; harmless if generic
+        'HTTP-Referer': process.env.SITE_URL || 'https://baccarat-lab.onrender.com',
+        'X-Title': 'Baccarat Lab'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: OPENROUTER_MODEL,
         max_tokens: 500,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: instruction }]
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: instruction }
+        ]
       })
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error('Anthropic API error:', errText);
+      console.error('OpenRouter API error:', errText);
       return res.status(502).json({ error: 'upstream API error' });
     }
 
     const data = await response.json();
-    const textBlock = data.content.find(b => b.type === 'text');
-    const raw = textBlock ? textBlock.text.trim() : '{}';
+    const raw = data.choices?.[0]?.message?.content?.trim() || '{}';
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/```$/, '').trim();
 
     let parsed;
