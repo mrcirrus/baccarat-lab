@@ -126,10 +126,19 @@ function playHand(shoe) {
 
 // Simulate a full run of N hands, respecting cut card + reshuffle, with optional
 // staking strategy applied to a chosen bet side.
-function runSimulation({ numDecks = 8, numHands = 1000, cutCardDepth = 14, bet = null, strategy = 'flat', bankroll = 1000, baseBet = 10 }) {
+//
+// This runs the ACTUAL per-hand loop — every hand is individually dealt from a
+// real shuffled shoe via playHand(). Nothing here is a shortcut/formula. It's
+// async and chunked purely so the browser tab can repaint and report progress
+// instead of freezing solid on large N; it does not skip or approximate hands.
+const HANDS_PER_CHUNK = 400; // yield to the browser every N hands
+
+async function runSimulationAsync(
+  { numDecks = 8, numHands = 1000, cutCardDepth = 14, bet = null, strategy = 'flat', bankroll = 1000, baseBet = 10, tiePayout = 9 },
+  onProgress
+) {
   let shoe = [];
   let shoesUsed = 0;
-  const results = [];
   let bankerWins = 0, playerWins = 0, ties = 0;
   let pairs = 0, naturals = 0;
 
@@ -151,8 +160,7 @@ function runSimulation({ numDecks = 8, numHands = 1000, cutCardDepth = 14, bet =
       newShoe();
     }
 
-    const hand = playHand(shoe);
-    results.push(hand);
+    const hand = playHand(shoe); // <-- real deal happens here, every single hand
 
     if (hand.outcome === 'banker') bankerWins++;
     else if (hand.outcome === 'player') playerWins++;
@@ -163,15 +171,13 @@ function runSimulation({ numDecks = 8, numHands = 1000, cutCardDepth = 14, bet =
 
     if (bet) {
       if (hand.outcome === 'tie') {
-        // Push on tie for player/banker bets; bet stands for tie bets
         if (bet === 'tie') {
-          const won = true;
-          const payout = currentBet * 8;
+          const payout = currentBet * tiePayout;
           currentBankroll += payout;
           betWins++;
           if (strategy === 'martingale') currentBet = baseBet;
         }
-        // player/banker bets: no win/loss counted, no bankroll change
+        // player/banker bets: push on tie — no win/loss counted, no bankroll change
       } else {
         const won = hand.outcome === bet;
         if (won) {
@@ -187,9 +193,17 @@ function runSimulation({ numDecks = 8, numHands = 1000, cutCardDepth = 14, bet =
       }
       bankrollHistory.push({ hand: i + 1, bankroll: Math.round(currentBankroll * 100) / 100 });
     }
+
+    if ((i + 1) % HANDS_PER_CHUNK === 0 || i === numHands - 1) {
+      if (onProgress) onProgress(i + 1, numHands);
+      // Yield control back to the browser so it can repaint the progress bar
+      // and stay responsive — this does not skip or batch-approximate hands,
+      // it just lets the UI breathe between chunks of real per-hand dealing.
+      await new Promise(resolve => setTimeout(resolve, 0));
+    }
   }
 
-  const totalHands = results.length;
+  const totalHands = numHands;
   const strategyWinPct = (betWins + betLosses) > 0
     ? (betWins / (betWins + betLosses)) * 100
     : null;
@@ -207,6 +221,7 @@ function runSimulation({ numDecks = 8, numHands = 1000, cutCardDepth = 14, bet =
     naturalsPct: (naturals / totalHands) * 100,
     bet,
     strategy,
+    tiePayout,
     startingBankroll: bankroll,
     finalBankroll: bet ? Math.round(currentBankroll * 100) / 100 : bankroll,
     profit: bet ? Math.round((currentBankroll - bankroll) * 100) / 100 : 0,
@@ -223,7 +238,7 @@ function runSimulation({ numDecks = 8, numHands = 1000, cutCardDepth = 14, bet =
 
 function parseInstructionLocally(text) {
   const t = text.toLowerCase();
-  const config = { numHands: 1000, numDecks: 8, bet: null, strategy: 'flat', bankroll: 1000, baseBet: 10 };
+  const config = { numHands: 1000, numDecks: 8, bet: null, strategy: 'flat', bankroll: 1000, baseBet: 10, tiePayout: 9 };
 
   const handsMatch = t.match(/(\d[\d,]*)\s*hands?/);
   if (handsMatch) config.numHands = parseInt(handsMatch[1].replace(/,/g, ''), 10);
@@ -237,6 +252,12 @@ function parseInstructionLocally(text) {
 
   if (t.includes('martingale')) config.strategy = 'martingale';
   else config.strategy = 'flat';
+
+  if (t.includes('8:1') || t.includes('8 to 1') || t.includes('standard tie') || t.includes('land casino') || t.includes('land-based')) {
+    config.tiePayout = 8;
+  } else if (t.includes('9:1') || t.includes('9 to 1') || t.includes('online tie')) {
+    config.tiePayout = 9;
+  }
 
   const bankrollMatch = t.match(/\$?\s*(\d[\d,]*)\s*bankroll/) || t.match(/bankroll\s*\$?\s*(\d[\d,]*)/);
   if (bankrollMatch) config.bankroll = parseInt(bankrollMatch[1].replace(/,/g, ''), 10);
@@ -273,6 +294,23 @@ function OutcomeBar({ label, pct, colorClass }) {
   );
 }
 
+function ProgressOverlay({ current, total }) {
+  const pct = total > 0 ? Math.min(100, (current / total) * 100) : 0;
+  return (
+    <div className="sim-overlay">
+      <div className="sim-overlay-box">
+        <div className="sim-spinner" />
+        <div className="sim-overlay-title">Dealing hands…</div>
+        <div className="sim-overlay-count">{current.toLocaleString()} / {total.toLocaleString()}</div>
+        <div className="sim-progress-track">
+          <div className="sim-progress-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="sim-overlay-pct">{pct.toFixed(0)}%</div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [messages, setMessages] = useState([
     { role: 'assistant', text: "Tell me what to simulate — e.g. \"run 20000 hands, banker bet, martingale, $2000 bankroll\". Or use the manual controls below." }
@@ -287,19 +325,36 @@ export default function App() {
   const [manualStrategy, setManualStrategy] = useState('flat');
   const [manualBankroll, setManualBankroll] = useState(1000);
   const [manualBaseBet, setManualBaseBet] = useState(10);
+  const [manualTiePayout, setManualTiePayout] = useState(9);
+
+  const [simProgress, setSimProgress] = useState({ current: 0, total: 0 });
+  const [showOverlay, setShowOverlay] = useState(false);
 
   const chatEndRef = useRef(null);
 
-  const executeSimulation = useCallback((config) => {
+  const executeSimulation = useCallback(async (config) => {
     const bet = config.bet === 'none' ? null : config.bet;
-    const sim = runSimulation({
-      numDecks: config.numDecks,
-      numHands: config.numHands,
-      bet,
-      strategy: config.strategy,
-      bankroll: config.bankroll,
-      baseBet: config.baseBet
-    });
+    setSimProgress({ current: 0, total: config.numHands });
+
+    // Only show the overlay if the run is taking more than ~400ms — instant
+    // runs shouldn't flash a loading screen.
+    const overlayTimer = setTimeout(() => setShowOverlay(true), 400);
+
+    const sim = await runSimulationAsync(
+      {
+        numDecks: config.numDecks,
+        numHands: config.numHands,
+        bet,
+        strategy: config.strategy,
+        bankroll: config.bankroll,
+        baseBet: config.baseBet,
+        tiePayout: config.tiePayout ?? 9
+      },
+      (current, total) => setSimProgress({ current, total })
+    );
+
+    clearTimeout(overlayTimer);
+    setShowOverlay(false);
     setResult(sim);
     return sim;
   }, []);
@@ -310,7 +365,8 @@ export default function App() {
       `Banker ${sim.bankerPct.toFixed(2)}% · Player ${sim.playerPct.toFixed(2)}% · Tie ${sim.tiePct.toFixed(2)}%`
     ];
     if (sim.bet) {
-      lines.push(`Bet: ${sim.bet} (${sim.strategy}). Bankroll: $${sim.startingBankroll} → $${sim.finalBankroll} (${sim.profit >= 0 ? '+' : ''}${sim.profit}).`);
+      const payoutNote = sim.bet === 'tie' ? ` (tie pays ${sim.tiePayout}:1)` : '';
+      lines.push(`Bet: ${sim.bet} (${sim.strategy})${payoutNote}. Bankroll: $${sim.startingBankroll} → $${sim.finalBankroll} (${sim.profit >= 0 ? '+' : ''}${sim.profit}).`);
       if (sim.strategyWinPct !== null) {
         lines.push(`Strategy win %: ${sim.strategyWinPct.toFixed(2)}% (${sim.betWins}W / ${sim.betLosses}L, ties excluded). ${sim.profit >= 0 ? 'Profitable.' : 'Not profitable.'}`);
       }
@@ -336,7 +392,7 @@ export default function App() {
       const data = await res.json();
 
       if (data.action === 'run_simulation') {
-        const sim = executeSimulation(data.config);
+        const sim = await executeSimulation(data.config);
         setMessages(m => [...m, { role: 'assistant', text: summarize(sim) }]);
       } else {
         setMessages(m => [...m, { role: 'assistant', text: data.reply || "I couldn't parse that into a simulation." }]);
@@ -344,7 +400,7 @@ export default function App() {
     } catch (err) {
       // Fallback: parse locally and run without AI
       const config = parseInstructionLocally(text);
-      const sim = executeSimulation(config);
+      const sim = await executeSimulation(config);
       setMessages(m => [...m, {
         role: 'assistant',
         text: `(AI backend unavailable, used local parsing)\n${summarize(sim)}`
@@ -355,14 +411,15 @@ export default function App() {
     }
   }
 
-  function runManualConfig() {
-    const sim = executeSimulation({
+  async function runManualConfig() {
+    const sim = await executeSimulation({
       numHands: manualHands,
       numDecks: manualDecks,
       bet: manualBet,
       strategy: manualStrategy,
       bankroll: manualBankroll,
-      baseBet: manualBaseBet
+      baseBet: manualBaseBet,
+      tiePayout: manualTiePayout
     });
     setMessages(m => [...m, { role: 'assistant', text: `Manual run:\n${summarize(sim)}` }]);
   }
@@ -430,6 +487,13 @@ export default function App() {
                 Base bet ($)
                 <input type="number" value={manualBaseBet} onChange={e => setManualBaseBet(parseInt(e.target.value) || 0)} />
               </label>
+              <label>
+                Tie payout
+                <select value={manualTiePayout} onChange={e => setManualTiePayout(parseInt(e.target.value))}>
+                  <option value={9}>9:1 (Online default)</option>
+                  <option value={8}>8:1 (Land-based)</option>
+                </select>
+              </label>
             </div>
             <button className="run-btn" onClick={runManualConfig}>Run this configuration</button>
           </div>
@@ -437,7 +501,8 @@ export default function App() {
 
         <div className="panel results-panel">
           <h3>Results</h3>
-          {!result && <p className="empty-state">Run a simulation to see results here.</p>}
+          {showOverlay && <ProgressOverlay current={simProgress.current} total={simProgress.total} />}
+          {!result && !showOverlay && <p className="empty-state">Run a simulation to see results here.</p>}
           {result && (
             <>
               <div className="outcome-bars">

@@ -16,8 +16,13 @@ you, or ask general questions about baccarat.
   new shoe is shuffled, rather than dealing until the shoe is exhausted
 - Standard third-card drawing rules (player draws 0–5, banker table-based
   rules), naturals on 8/9
-- 5% commission on Banker wins, push on ties for Player/Banker bets, 8:1 tie
-  payout
+- 5% commission on Banker wins, push on ties for Player/Banker bets
+- Tie payout defaults to **9:1** (the common online-casino standard), with an
+  8:1 (land-based standard) option selectable in manual controls or via
+  instruction (e.g. "run 5000 hands, tie bet, 8:1")
+- Every hand is individually dealt from a real shuffled shoe — nothing is
+  approximated from odds tables. Large runs process in chunks with a visible
+  progress overlay so the browser tab stays responsive instead of freezing
 
 ## Project structure
 

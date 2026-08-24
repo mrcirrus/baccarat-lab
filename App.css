@@ -237,3 +237,70 @@
   font-size: 14px;
   color: #8b98a5;
 }
+
+.results-panel {
+  position: relative;
+  min-height: 240px;
+}
+
+.sim-overlay {
+  position: absolute;
+  inset: 0;
+  background: #10151cee;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  z-index: 5;
+}
+
+.sim-overlay-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 240px;
+}
+
+.sim-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid #1c2530;
+  border-top-color: #3fb950;
+  animation: sim-spin 0.8s linear infinite;
+}
+
+@keyframes sim-spin {
+  to { transform: rotate(360deg); }
+}
+
+.sim-overlay-title {
+  font-size: 14px;
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.sim-overlay-count {
+  font-size: 12px;
+  color: #8b98a5;
+}
+
+.sim-progress-track {
+  width: 100%;
+  height: 8px;
+  background: #1c2530;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sim-progress-fill {
+  height: 100%;
+  background: #3fb950;
+  transition: width 0.1s linear;
+}
+
+.sim-overlay-pct {
+  font-size: 12px;
+  color: #8b98a5;
+}
